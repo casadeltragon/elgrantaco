@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>El Gran Taco - POS, Cocina, Gastos y Reportes</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            overscroll-behavior-y: contain;
+        }
+        .active-nav { background-color: #eab308; color: #111827; font-weight: 800; }
+        .active-nav-mobile { color: #d97706; font-weight: 800; }
+
+        /* Deslizamiento táctil suave en celulares para tablas y listas */
+        .touch-scroll-x {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+            touch-action: pan-x pan-y;
+        }
+        .touch-scroll-y {
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch;
+            touch-action: pan-y;
+        }
+
+        /* Vista previa calibrada a rollo térmico de 58mm */
+        .ticket-preview {
+            font-family: 'Courier New', Courier, monospace;
+            width: 58mm;
+            max-width: 220px;
+            background: #fff;
+            color: #000;
+            padding: 8px 6px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            border-top: 4px dashed #d1d5db;
+            border-bottom: 4px dashed #d1d5db;
+            margin: 0 auto;
+            font-size: 11px;
+            line-height: 1.25;
+        }
+
+        /* Configuración de impresión térmica Bluetooth 58mm */
+        @page {
+            size: 58mm auto;
+            margin: 0mm;
+        }
+
+        @media print {
+            html, body {
+                width: 58mm !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #fff !important;
+            }
+            body * {
+                visibility: hidden;
+            }
+            #printable-ticket-area, #printable-ticket-area * {
+                visibility: visible;
+            }
+            #printable-ticket-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 54mm !important;
+                max-width: 54mm !important;
+                box-shadow: none !important;
+                border: none !important;
+                margin: 0 !important;
+                padding: 1.5mm !important;
+                font-size: 10px !important;
+                line-height: 1.2 !important;
+                color: #000 !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen flex flex-col">
+
+    <input type="file" id="upload-logo" accept="image/*" class="hidden" onchange="guardarLogoOficial(event)">
+
+    <!-- PANTALLA DE LOGIN -->
+    <div id="login-screen" class="fixed inset-0 bg-gradient-to-br from-neutral-900 via-stone-900 to-amber-950 flex items-center justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border-4 border-yellow-400 my-auto">
+            <div class="bg-neutral-900 p-6 text-center text-white relative">
+                <div onclick="document.getElementById('upload-logo').click()" title="Clic para cambiar logo"
+                     class="w-28 h-28 bg-white rounded-full flex items-center justify-center mx-auto mb-3 shadow-xl border-4 border-yellow-400 overflow-hidden cursor-pointer group relative">
+                    <img src="WhatsApp Image 2026-10-25 at 00.17.12_2.jpeg" alt="El Gran Taco" 
+                         class="logo-img w-full h-full object-contain bg-white" 
+                         onerror="intentarRutaAlternaLogo(this)">
+                </div>
+                <h1 class="text-2xl font-black tracking-wider text-yellow-400">EL GRAN TACO</h1>
+                <p class="text-amber-200 text-xs italic font-medium">"Sabor que manda • Carne recién salida del cazo"</p>
+            </div>
+            <form id="login-form" class="p-6 space-y-5">
+                <div id="login-error" class="hidden bg-red-100 border-l-4 border-red-600 text-red-700 p-3 rounded text-sm"></div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Usuario</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-user absolute left-3.5 top-3.5 text-gray-400"></i>
+                        <input type="text" id="login-username" required placeholder="Ej. admin" autocomplete="username"
+                            class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Contraseña</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-lock absolute left-3.5 top-3.5 text-gray-400"></i>
+                        <input type="password" id="login-password" required placeholder="••••••••" autocomplete="current-password"
+                            class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    </div>
+                </div>
+                <button type="submit" id="btn-login" class="w-full bg-yellow-400 hover:bg-yellow-500 text-neutral-900 font-black py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2 uppercase tracking-wide">
+                    <span>Entrar al Sistema</span>
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <div id="app-container" class="hidden flex-1 flex flex-col md:flex-row min-h-screen pb-20 md:pb-0">
+        
+        <!-- SIDEBAR (PC y Tablet Horizontal) -->
+        <aside class="hidden md:flex md:w-64 bg-neutral-900 text-white flex-col justify-between shrink-0 border-r border-neutral-800">
+            <div class="overflow-y-auto">
+                <div class="p-5 flex items-center gap-3 border-b border-neutral-800">
+                    <div class="w-14 h-14 bg-white rounded-full border-2 border-yellow-400 overflow-hidden shrink-0 cursor-pointer shadow-md" onclick="document.getElementById('upload-logo').click()">
+                        <img src="WhatsApp Image 2026-10-25 at 00.17.12_2.jpeg" alt="Logo" class="logo-img w-full h-full object-contain bg-white" onerror="intentarRutaAlternaLogo(this)">
+                    </div>
+                    <div>
+                        <h2 class="font-black text-lg leading-tight text-yellow-400">EL GRAN TACO</h2>
+                        <span id="user-role-badge" class="text-xs bg-yellow-400/20 text-yellow-300 px-2 py-0.5 rounded-full font-bold">Administrador</span>
+                    </div>
+                </div>
+
+                <nav class="p-3 space-y-1.5 text-sm">
+                    <p id="lbl-sec-operacion" class="text-[10px] uppercase text-gray-400 font-bold px-3 pt-1">Operación en Vivo</p>
+                    <button onclick="switchTab('mesas')" id="nav-mesas" class="nav-btn active-nav w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left transition hover:bg-neutral-800">
+                        <div class="flex items-center gap-3"><i class="fa-solid fa-chair w-5 text-center"></i><span>Mesas y Comandero</span></div>
+                    </button>
+                    <button onclick="switchTab('cocina')" id="nav-cocina" class="nav-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left transition hover:bg-neutral-800">
+                        <div class="flex items-center gap-3"><i class="fa-solid fa-fire-burner w-5 text-center"></i><span>Monitor Cocina</span></div>
+                        <span id="badge-cocina" class="hidden bg-red-600 text-white text-xs font-black px-2 py-0.5 rounded-full">0</span>
+                    </button>
+                    <button onclick="switchTab('barra')" id="nav-barra" class="nav-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left transition hover:bg-neutral-800">
+                        <div class="flex items-center gap-3"><i class="fa-solid fa-glass-water w-5 text-center"></i><span>Monitor Barra</span></div>
+                        <span id="badge-barra" class="hidden bg-blue-600 text-white text-xs font-black px-2 py-0.5 rounded-full">0</span>
+                    </button>
+
+                    <p id="lbl-sec-finanzas" class="text-[10px] uppercase text-gray-400 font-bold px-3 pt-3">Finanzas y Analítica</p>
+                    <button onclick="switchTab('aguas')" id="nav-aguas" class="nav-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-left transition hover:bg-neutral-800">
+                        <i class="fa-solid fa-bottle-water w-5 text-center text-cyan-400"></i><span>Consumo e Inv. Aguas</span>
+                    </button>
+                    <button onclick="switchTab('gastos')" id="nav-gastos" class="nav-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-left transition hover:bg-neutral-800">
+                        <i class="fa-solid fa-money-bill-transfer w-5 text-center"></i><span>Gastos Operativos</span>
+                    </button>
+                    <button onclick="switchTab('rotacion')" id="nav-rotacion" class="nav-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-left transition hover:bg-neutral-800">
+                        <i class="fa-solid fa-chart-simple w-5 text-center"></i><span>Rotación de Artículos</span>
+                    </button>
+                    <button onclick="switchTab('reportes')" id="nav-reportes" class="nav-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-left transition hover:bg-neutral-800">
+                        <i class="fa-solid fa-scale-balanced w-5 text-center"></i><span>Cortes y Utilidad Real</span>
+                    </button>
+
+                    <p id="lbl-sec-catalogos" class="text-[10px] uppercase text-gray-400 font-bold px-3 pt-3">Catálogos Base</p>
+                    <button onclick="switchTab('inventario')" id="nav-inventario" class="nav-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-left transition hover:bg-neutral-800">
+                        <i class="fa-solid fa-utensils w-5 text-center"></i><span>Menú / Inventario</span>
+                    </button>
+                    <button onclick="switchTab('usuarios')" id="nav-usuarios" class="nav-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-left transition hover:bg-neutral-800">
+                        <i class="fa-solid fa-users w-5 text-center"></i><span>Usuarios</span>
+                    </button>
+                </nav>
+            </div>
+
+            <div class="p-4 border-t border-neutral-800 shrink-0">
+                <button id="btn-cambiar-logo-side" onclick="document.getElementById('upload-logo').click()" class="w-full mb-2.5 bg-yellow-400/10 hover:bg-yellow-400/25 border border-yellow-400/40 text-xs text-yellow-400 py-2 rounded-xl font-bold transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-image"></i> Cambiar Logo Oficial
+                </button>
+                <div class="flex items-center justify-between mb-2 px-1">
+                    <p id="user-name-display" class="text-xs font-bold truncate">Admin</p>
+                    <span class="text-[10px] text-green-400"><i class="fa-solid fa-circle text-[7px] mr-1"></i>Activo</span>
+                </div>
+                <button onclick="logout()" class="w-full bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white py-2 rounded-lg text-xs font-semibold transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-right-from-bracket"></i> Cerrar Sesión
+                </button>
+            </div>
+        </aside>
+
+        <!-- HEADER MÓVIL -->
+        <header class="md:hidden bg-neutral-900 text-white p-3.5 flex items-center justify-between sticky top-0 z-30 shadow border-b border-yellow-500/30">
+            <div class="flex items-center gap-2.5">
+                <img src="WhatsApp Image 2026-10-25 at 00.17.12_2.jpeg" alt="Logo" class="logo-img w-9 h-9 rounded-full border-2 border-yellow-400 object-contain bg-white" onerror="intentarRutaAlternaLogo(this)">
+                <div>
+                    <span class="font-black tracking-wide text-yellow-400 text-sm block leading-none">EL GRAN TACO</span>
+                    <span id="mobile-role-badge" class="text-[10px] text-gray-300">Administrador</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="mobile-user-name" class="text-[11px] bg-neutral-800 px-2.5 py-1 rounded-full text-yellow-400 font-bold">Admin</span>
+                <button onclick="logout()" class="text-gray-300 hover:text-red-400 px-1"><i class="fa-solid fa-right-from-bracket"></i></button>
+            </div>
+        </header>
+
+        <!-- CONTENIDO PRINCIPAL -->
+        <main class="flex-1 p-3 sm:p-4 md:p-8 overflow-x-hidden">
+
+            <!-- 1. MESAS Y COMANDERO -->
+            <section id="sec-mesas" class="module-section space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-black text-gray-900">Control de Mesas y Comandero</h1>
+                        <p class="text-xs sm:text-sm text-gray-500">Selecciona una mesa para levantar pedidos por plato, revisar entregas o cobrar</p>
+                    </div>
+                    <button id="btn-nueva-mesa" onclick="openMesaModal()" class="bg-neutral-900 hover:bg-neutral-800 text-yellow-400 font-bold px-4 py-2.5 rounded-xl shadow flex items-center justify-center gap-2 transition border border-yellow-400">
+                        <i class="fa-solid fa-plus"></i> Nueva Mesa
+                    </button>
+                </div>
+                <div id="grid-mesas" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+            </section>
+
+            <!-- 2. MONITOR DE COCINA -->
+            <section id="sec-cocina" class="module-section hidden space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900 text-white p-4 sm:p-5 rounded-2xl border-l-8 border-orange-500 shadow">
+                    <div>
+                        <div class="flex items-center gap-2"><i class="fa-solid fa-fire-burner text-orange-400 text-xl sm:text-2xl"></i><h1 class="text-lg sm:text-2xl font-black text-yellow-400">MONITOR DE COCINA (POR PLATO)</h1></div>
+                        <p class="text-xs text-gray-300 mt-1">Un solo botón por plato para avanzar todos los alimentos de ese comensal</p>
+                    </div>
+                    <button onclick="cargarComandasActivas()" class="bg-neutral-800 hover:bg-neutral-700 text-yellow-400 px-4 py-2 rounded-xl text-xs font-bold border border-neutral-700 flex items-center gap-2 self-start sm:self-auto"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+                </div>
+                <div id="grid-comandas-cocina" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+            </section>
+
+            <!-- 3. MONITOR DE BARRA -->
+            <section id="sec-barra" class="module-section hidden space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900 text-white p-4 sm:p-5 rounded-2xl border-l-8 border-blue-500 shadow">
+                    <div>
+                        <div class="flex items-center gap-2"><i class="fa-solid fa-glass-water text-blue-400 text-xl sm:text-2xl"></i><h1 class="text-lg sm:text-2xl font-black text-yellow-400">MONITOR DE BARRA</h1></div>
+                        <p class="text-xs text-gray-300 mt-1">Aguas Frescas y Refrescos</p>
+                    </div>
+                    <button onclick="cargarComandasActivas()" class="bg-neutral-800 hover:bg-neutral-700 text-yellow-400 px-4 py-2 rounded-xl text-xs font-bold border border-neutral-700 flex items-center gap-2 self-start sm:self-auto"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+                </div>
+                <div id="grid-comandas-barra" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+            </section>
+
+            <!-- 4. CONSUMO E INVENTARIO DE AGUAS FRESCAS -->
+            <section id="sec-aguas" class="module-section hidden space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-cyan-900 via-sky-900 to-neutral-900 text-white p-5 rounded-3xl shadow-lg border-l-8 border-cyan-400">
+                    <div>
+                        <div class="flex items-center gap-2.5">
+                            <i class="fa-solid fa-bottle-water text-cyan-300 text-2xl"></i>
+                            <h1 class="text-xl sm:text-2xl font-black text-yellow-400">CONSUMO E INVENTARIO DE AGUAS</h1>
+                        </div>
+                        <p class="text-xs text-cyan-100 mt-1">Desliza la tabla hacia la derecha en tu teléfono para surtir o ajustar litros</p>
+                    </div>
+                    <button onclick="cargarReporteAguas()" class="bg-white/10 hover:bg-white/20 text-yellow-300 px-4 py-2 rounded-xl text-xs font-black border border-cyan-400/30 flex items-center gap-2 self-start sm:self-auto">
+                        <i class="fa-solid fa-rotate"></i> Actualizar
+                    </button>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-wrap items-end justify-between gap-4">
+                    <div class="flex flex-wrap items-end gap-3">
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Consumo Desde</label>
+                            <input type="date" id="aguas-fecha-inicio" class="border rounded-xl px-3 py-2 text-sm font-semibold">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Consumo Hasta</label>
+                            <input type="date" id="aguas-fecha-fin" class="border rounded-xl px-3 py-2 text-sm font-semibold">
+                        </div>
+                        <button onclick="cargarReporteAguas()" class="bg-cyan-600 hover:bg-cyan-700 text-white font-black px-5 py-2.5 rounded-xl text-sm shadow">
+                            <i class="fa-solid fa-filter mr-1"></i> Consultar Consumo
+                        </button>
+                    </div>
+
+                    <div class="flex flex-wrap gap-3">
+                        <div class="bg-cyan-50 border border-cyan-200 px-4 py-2 rounded-xl text-right">
+                            <span class="text-[10px] font-bold uppercase text-cyan-700 block">Stock Actual (Aguas)</span>
+                            <span id="aguas-total-stock" class="text-lg font-black text-cyan-900">0 Lts</span>
+                        </div>
+                        <div class="bg-amber-50 border border-amber-200 px-4 py-2 rounded-xl text-right">
+                            <span class="text-[10px] font-bold uppercase text-amber-700 block">Consumo en Periodo</span>
+                            <span id="aguas-total-consumo" class="text-lg font-black text-amber-900">0 vendidas</span>
+                        </div>
+                        <div class="bg-green-50 border border-green-200 px-4 py-2 rounded-xl text-right">
+                            <span class="text-[10px] font-bold uppercase text-green-700 block">Venta de Aguas ($)</span>
+                            <span id="aguas-total-ingreso" class="text-lg font-black text-green-800">$0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <p class="md:hidden text-[11px] text-amber-700 bg-amber-50 px-3 py-1.5 font-bold border-b border-amber-200"><i class="fa-solid fa-arrows-left-right mr-1"></i> Desliza la tabla a la derecha para ver el botón de Surtir</p>
+                    <div class="touch-scroll-x w-full">
+                        <table class="w-full min-w-[720px] text-left border-collapse">
+                            <thead>
+                                <tr class="bg-neutral-900 text-yellow-400 text-xs uppercase font-bold">
+                                    <th class="p-4">Sabor de Agua Fresca</th>
+                                    <th class="p-4">Precio Venta</th>
+                                    <th class="p-4">Existencia Actual</th>
+                                    <th class="p-4">Estado de Stock</th>
+                                    <th class="p-4">Consumo Periodo</th>
+                                    <th class="p-4">Ingreso ($)</th>
+                                    <th class="p-4 text-right">Abastecer / Ajustar</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabla-reporte-aguas" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 5. MÓDULO DE GASTOS OPERATIVOS -->
+            <section id="sec-gastos" class="module-section hidden space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-black text-gray-900">Registro y Control de Gastos</h1>
+                        <p class="text-xs sm:text-sm text-gray-500">Registra compras de carne, verdura, refrescos, gas, sueldos y otros egresos</p>
+                    </div>
+                    <button onclick="openGastoModal()" class="bg-neutral-900 hover:bg-neutral-800 text-yellow-400 font-bold px-4 py-2.5 rounded-xl shadow flex items-center justify-center gap-2 transition border border-yellow-400">
+                        <i class="fa-solid fa-plus"></i> Registrar Gasto
+                    </button>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-wrap items-end justify-between gap-4">
+                    <div class="flex flex-wrap items-end gap-3">
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Desde</label>
+                            <input type="date" id="gasto-filtro-inicio" class="border rounded-xl px-3 py-2 text-sm font-semibold">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Hasta</label>
+                            <input type="date" id="gasto-filtro-fin" class="border rounded-xl px-3 py-2 text-sm font-semibold">
+                        </div>
+                        <button onclick="cargarGastos()" class="bg-yellow-400 hover:bg-yellow-500 text-neutral-900 font-black px-4 py-2 rounded-xl text-sm shadow-sm">
+                            <i class="fa-solid fa-filter mr-1"></i> Filtrar Gastos
+                        </button>
+                    </div>
+                    <div class="bg-red-50 border border-red-200 px-4 py-2 rounded-xl text-right">
+                        <span class="text-xs font-bold uppercase text-red-600 block">Total Gastos del Periodo</span>
+                        <span id="gastos-total-periodo" class="text-xl font-black text-red-700">$0.00</span>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <p class="md:hidden text-[11px] text-amber-700 bg-amber-50 px-3 py-1.5 font-bold border-b border-amber-200"><i class="fa-solid fa-arrows-left-right mr-1"></i> Desliza la tabla hacia la derecha para ver todas las columnas</p>
+                    <div class="touch-scroll-x w-full">
+                        <table class="w-full min-w-[680px] text-left border-collapse">
+                            <thead>
+                                <tr class="bg-neutral-900 text-yellow-400 text-xs uppercase font-bold">
+                                    <th class="p-4">Fecha</th>
+                                    <th class="p-4">Concepto / Descripción</th>
+                                    <th class="p-4">Categoría</th>
+                                    <th class="p-4">Método Pago</th>
+                                    <th class="p-4">Registró</th>
+                                    <th class="p-4">Monto</th>
+                                    <th class="p-4 text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabla-gastos" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 6. MÓDULO DE ROTACIÓN DE ARTÍCULOS -->
+            <section id="sec-rotacion" class="module-section hidden space-y-5">
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-black text-gray-900">Rotación de Artículos por Rango de Fechas</h1>
+                    <p class="text-xs sm:text-sm text-gray-500">Analiza qué platillos y bebidas se venden más en el periodo seleccionado</p>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-wrap items-end justify-between gap-4">
+                    <div class="flex flex-wrap items-end gap-3">
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Fecha Inicio</label>
+                            <input type="date" id="rot-fecha-inicio" class="border rounded-xl px-3 py-2 text-sm font-semibold">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Fecha Fin</label>
+                            <input type="date" id="rot-fecha-fin" class="border rounded-xl px-3 py-2 text-sm font-semibold">
+                        </div>
+                        <button onclick="calcularRotacionArticulos()" class="bg-neutral-900 hover:bg-neutral-800 text-yellow-400 font-black px-5 py-2.5 rounded-xl text-sm shadow border border-yellow-400">
+                            <i class="fa-solid fa-magnifying-glass-chart mr-1"></i> Consultar Rotación
+                        </button>
+                    </div>
+                    <div class="flex gap-3">
+                        <div class="bg-amber-50 border border-amber-200 px-4 py-2 rounded-xl text-right">
+                            <span class="text-[11px] font-bold uppercase text-amber-700 block">Unidades Vendidas</span>
+                            <span id="rot-total-unidades" class="text-lg font-black text-amber-900">0</span>
+                        </div>
+                        <div class="bg-green-50 border border-green-200 px-4 py-2 rounded-xl text-right">
+                            <span class="text-[11px] font-bold uppercase text-green-700 block">Ingreso por Artículos</span>
+                            <span id="rot-total-ingreso" class="text-lg font-black text-green-800">$0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="touch-scroll-x w-full">
+                        <table class="w-full min-w-[640px] text-left border-collapse">
+                            <thead>
+                                <tr class="bg-neutral-900 text-yellow-400 text-xs uppercase font-bold">
+                                    <th class="p-4"># Ranking</th>
+                                    <th class="p-4">Artículo / Platillo</th>
+                                    <th class="p-4">Categoría</th>
+                                    <th class="p-4">Cantidad Vendida</th>
+                                    <th class="p-4">Total Generado ($)</th>
+                                    <th class="p-4">% Participación</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabla-rotacion" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 7. CORTES Y UTILIDAD REAL -->
+            <section id="sec-reportes" class="module-section hidden space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-black text-gray-900">Cortes de Caja y Utilidad Real</h1>
+                        <p class="text-xs sm:text-sm text-gray-500">Balances financieros: Ventas menos Gastos, promedios por mesa y por día</p>
+                    </div>
+                    <button onclick="cargarReportesFinancieros()" class="bg-neutral-900 hover:bg-neutral-800 text-yellow-400 font-bold px-4 py-2 rounded-xl text-xs border border-yellow-400 flex items-center gap-2 self-start">
+                        <i class="fa-solid fa-rotate"></i> Actualizar Reportes
+                    </button>
+                </div>
+
+                <div class="bg-gradient-to-r from-neutral-900 via-stone-900 to-neutral-800 text-white p-5 sm:p-6 rounded-3xl shadow-xl border-2 border-yellow-400">
+                    <div class="flex items-center gap-2 text-yellow-400 font-black text-xs uppercase tracking-wider mb-3">
+                        <i class="fa-solid fa-vault text-base"></i> REPORTE DE UTILIDAD REAL (ACUMULADO HISTÓRICO TOTAL)
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                            <p class="text-xs text-gray-400 uppercase font-bold">Histórico de Ventas (+)</p>
+                            <p id="rep-hist-ventas" class="text-2xl font-black text-green-400 mt-1">$0.00</p>
+                            <p id="rep-hist-ordenes" class="text-[11px] text-gray-400 mt-0.5">0 órdenes cobradas</p>
+                        </div>
+                        <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                            <p class="text-xs text-gray-400 uppercase font-bold">Histórico de Gastos (-)</p>
+                            <p id="rep-hist-gastos" class="text-2xl font-black text-red-400 mt-1">$0.00</p>
+                            <p id="rep-hist-numgastos" class="text-[11px] text-gray-400 mt-0.5">0 gastos registrados</p>
+                        </div>
+                        <div class="bg-yellow-400/15 p-4 rounded-2xl border-2 border-yellow-400">
+                            <p class="text-xs text-yellow-300 uppercase font-black">Utilidad Real Neta (=)</p>
+                            <p id="rep-hist-utilidad" class="text-3xl font-black text-yellow-400 mt-1">$0.00</p>
+                            <p class="text-[11px] text-amber-200 mt-0.5">Suma Ventas Históricas - Gastos Históricos</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-2 border-b border-gray-200 pb-3">
+                    <button onclick="cambiarTipoCorte('diario')" id="btn-corte-diario" class="corte-tab-btn bg-yellow-400 text-neutral-900 font-black px-4 py-2.5 rounded-xl text-xs shadow">
+                        📅 Corte Diario
+                    </button>
+                    <button onclick="cambiarTipoCorte('semanal')" id="btn-corte-semanal" class="corte-tab-btn bg-white border text-gray-700 font-bold px-4 py-2.5 rounded-xl text-xs">
+                        📊 Corte Semanal (Prom. x Día)
+                    </button>
+                    <button onclick="cambiarTipoCorte('mensual')" id="btn-corte-mensual" class="corte-tab-btn bg-white border text-gray-700 font-bold px-4 py-2.5 rounded-xl text-xs">
+                        🗓️ Corte Mensual (Prom. x Día)
+                    </button>
+                </div>
+
+                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-wrap items-center justify-between gap-4">
+                    <div id="filtro-corte-diario" class="flex items-center gap-3">
+                        <label class="text-xs font-bold uppercase text-gray-600">Día a consultar:</label>
+                        <input type="date" id="input-corte-dia" onchange="ejecutarCalculoCorte()" class="border rounded-xl px-3 py-2 text-sm font-bold">
+                    </div>
+
+                    <div id="filtro-corte-semanal" class="hidden flex flex-wrap items-center gap-3">
+                        <label class="text-xs font-bold uppercase text-gray-600">Semana del:</label>
+                        <input type="date" id="input-sem-inicio" class="border rounded-xl px-3 py-2 text-sm font-bold">
+                        <span class="text-xs font-bold text-gray-500">al</span>
+                        <input type="date" id="input-sem-fin" class="border rounded-xl px-3 py-2 text-sm font-bold">
+                        <button onclick="ejecutarCalculoCorte()" class="bg-neutral-900 text-yellow-400 font-bold px-3.5 py-2 rounded-xl text-xs">Calcular Semana</button>
+                    </div>
+
+                    <div id="filtro-corte-mensual" class="hidden flex items-center gap-3">
+                        <label class="text-xs font-bold uppercase text-gray-600">Mes a consultar:</label>
+                        <input type="month" id="input-corte-mes" onchange="ejecutarCalculoCorte()" class="border rounded-xl px-3 py-2 text-sm font-bold">
+                    </div>
+
+                    <span id="etiqueta-rango-corte" class="text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200"></span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                    <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                        <p class="text-xs uppercase font-bold text-gray-400">Ventas del Periodo (+)</p>
+                        <p id="corte-ventas" class="text-2xl font-black text-green-600 mt-1">$0.00</p>
+                        <p id="corte-num-mesas" class="text-xs text-gray-500 mt-1">0 mesas cobradas</p>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                        <p class="text-xs uppercase font-bold text-gray-400">Gastos del Periodo (-)</p>
+                        <p id="corte-gastos" class="text-2xl font-black text-red-600 mt-1">$0.00</p>
+                        <p id="corte-num-gastos" class="text-xs text-gray-500 mt-1">0 gastos registrados</p>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-2xl border-2 border-yellow-400 shadow-sm">
+                        <p class="text-xs uppercase font-black text-amber-700">Balance (Ventas - Gastos)</p>
+                        <p id="corte-utilidad" class="text-2xl font-black text-gray-900 mt-1">$0.00</p>
+                        <p class="text-[11px] text-gray-500 mt-1">Ganancia neta del corte</p>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-2xl border border-blue-200 bg-blue-50/30 shadow-sm">
+                        <p class="text-xs uppercase font-black text-blue-800">Venta Promedio x Mesa</p>
+                        <p id="corte-prom-mesa" class="text-2xl font-black text-blue-700 mt-1">$0.00</p>
+                        <p class="text-[11px] text-blue-600 mt-1">Ticket promedio por cuenta</p>
+                    </div>
+
+                    <div id="card-prom-dia" class="bg-white p-5 rounded-2xl border border-purple-200 bg-purple-50/30 shadow-sm">
+                        <p class="text-xs uppercase font-black text-purple-800">Venta Promedio x Día</p>
+                        <p id="corte-prom-dia" class="text-2xl font-black text-purple-700 mt-1">$0.00</p>
+                        <p id="corte-dias-label" class="text-[11px] text-purple-600 mt-1">Promedio diario del periodo</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-3">
+                        <h3 class="font-black text-gray-900 text-sm uppercase border-b pb-2">Desglose de Ingresos (Ventas)</h3>
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="font-semibold text-gray-600">💵 Efectivo en Caja:</span>
+                            <span id="corte-ef" class="font-black text-green-700">$0.00</span>
+                        </div>
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="font-semibold text-gray-600">💳 Tarjeta:</span>
+                            <span id="corte-tj" class="font-black text-blue-700">$0.00</span>
+                        </div>
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="font-semibold text-gray-600">📱 Transferencia:</span>
+                            <span id="corte-tr" class="font-black text-purple-700">$0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div class="bg-neutral-900 text-yellow-400 px-4 py-3 text-xs font-black uppercase">
+                            Historial de Cuentas Cobradas en este Corte
+                        </div>
+                        <div class="touch-scroll-x max-h-64 touch-scroll-y">
+                            <table class="w-full min-w-[500px] text-left border-collapse text-xs">
+                                <thead>
+                                    <tr class="bg-gray-50 border-b text-gray-500 uppercase font-bold">
+                                        <th class="p-3">Folio</th>
+                                        <th class="p-3">Fecha / Hora</th>
+                                        <th class="p-3">Mesa</th>
+                                        <th class="p-3">Método Pago</th>
+                                        <th class="p-3 text-right">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabla-corte-ventas" class="divide-y divide-gray-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 8. CATÁLOGO DE MENÚ / INVENTARIO (CON DESLIZAMIENTO LATERAL EN MÓVIL) -->
+            <section id="sec-inventario" class="module-section hidden space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-black text-gray-900">Catálogo de Menú y Precios</h1>
+                        <p class="text-xs sm:text-sm text-gray-500">Todos los productos son de venta libre (no inventariables), excepto las Aguas Frescas</p>
+                    </div>
+                    <button onclick="openInventarioModal()" class="bg-neutral-900 hover:bg-neutral-800 text-yellow-400 font-bold px-4 py-2.5 rounded-xl shadow flex items-center justify-center gap-2 transition border border-yellow-400"><i class="fa-solid fa-plus"></i> Agregar Platillo / Bebida</button>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="filterInventario('Todos')" class="inv-filter bg-yellow-400 text-neutral-900 px-3.5 py-2 rounded-full text-xs font-black shadow-sm transition">Todos</button>
+                    <button onclick="filterInventario('Tacos')" class="inv-filter bg-white border text-gray-700 px-3.5 py-2 rounded-full text-xs font-bold transition">🌮 Tacos</button>
+                    <button onclick="filterInventario('Tacos Premium')" class="inv-filter bg-white border text-gray-700 px-3.5 py-2 rounded-full text-xs font-bold transition">⭐ Premium</button>
+                    <button onclick="filterInventario('Tortas')" class="inv-filter bg-white border text-gray-700 px-3.5 py-2 rounded-full text-xs font-bold transition">🥖 Tortas</button>
+                    <button onclick="filterInventario('Burritos')" class="inv-filter bg-white border text-gray-700 px-3.5 py-2 rounded-full text-xs font-bold transition">🌯 Burritos</button>
+                    <button onclick="filterInventario('Huaraches')" class="inv-filter bg-white border text-gray-700 px-3.5 py-2 rounded-full text-xs font-bold transition">🫓 Huaraches</button>
+                    <button onclick="filterInventario('Extras')" class="inv-filter bg-white border text-gray-700 px-3.5 py-2 rounded-full text-xs font-bold transition">🧀 Precio Queso Extra</button>
+                    <button onclick="filterInventario('Bebidas')" class="inv-filter bg-white border text-gray-700 px-3.5 py-2 rounded-full text-xs font-bold transition">🥤 Bebidas y Aguas</button>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <p class="md:hidden text-[11px] text-amber-700 bg-amber-50 px-3 py-1.5 font-bold border-b border-amber-200"><i class="fa-solid fa-arrows-left-right mr-1"></i> Desliza la tabla a la derecha para tocar el botón Editar (✏️)</p>
+                    <div class="touch-scroll-x w-full">
+                        <table class="w-full min-w-[680px] text-left border-collapse">
+                            <thead>
+                                <tr class="bg-neutral-900 text-yellow-400 text-xs uppercase font-bold">
+                                    <th class="p-4">Platillo / Producto</th>
+                                    <th class="p-4">Categoría</th>
+                                    <th class="p-4">Destino</th>
+                                    <th class="p-4">Precio</th>
+                                    <th class="p-4">Control de Inventario</th>
+                                    <th class="p-4 text-right">Editar</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabla-inventario" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 9. CATÁLOGO DE USUARIOS -->
+            <section id="sec-usuarios" class="module-section hidden space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-black text-gray-900">Catálogo de Usuarios y Perfiles</h1>
+                        <p class="text-xs sm:text-sm text-gray-500">Perfiles: Administrador, Gerente, Mesero, Cocina y Barra</p>
+                    </div>
+                    <button onclick="openUsuarioModal()" class="bg-neutral-900 hover:bg-neutral-800 text-yellow-400 font-bold px-4 py-2.5 rounded-xl shadow flex items-center justify-center gap-2 transition border border-yellow-400">
+                        <i class="fa-solid fa-user-plus"></i> Nuevo Usuario
+                    </button>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <p class="md:hidden text-[11px] text-amber-700 bg-amber-50 px-3 py-1.5 font-bold border-b border-amber-200"><i class="fa-solid fa-arrows-left-right mr-1"></i> Desliza hacia la derecha para editar o eliminar</p>
+                    <div class="touch-scroll-x w-full">
+                        <table class="w-full min-w-[650px] text-left border-collapse">
+                            <thead>
+                                <tr class="bg-neutral-900 text-yellow-400 text-xs uppercase font-bold">
+                                    <th class="p-4">Nombre</th>
+                                    <th class="p-4">Usuario</th>
+                                    <th class="p-4">Perfil / Rol</th>
+                                    <th class="p-4">Accesos Permitidos</th>
+                                    <th class="p-4 text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabla-usuarios" class="divide-y divide-gray-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- BARRA MÓVIL INFERIOR -->
+        <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex touch-scroll-x justify-around py-1.5 z-30 shadow-lg">
+            <button onclick="switchTab('mesas')" id="mnav-mesas" class="mnav-btn active-nav-mobile flex flex-col items-center py-1 px-2.5 text-gray-500 shrink-0"><i class="fa-solid fa-chair text-base"></i><span class="text-[9px]">Mesas</span></button>
+            <button onclick="switchTab('cocina')" id="mnav-cocina" class="mnav-btn flex flex-col items-center py-1 px-2.5 text-gray-500 shrink-0"><i class="fa-solid fa-fire-burner text-base"></i><span class="text-[9px]">Cocina</span></button>
+            <button onclick="switchTab('barra')" id="mnav-barra" class="mnav-btn flex flex-col items-center py-1 px-2.5 text-gray-500 shrink-0"><i class="fa-solid fa-glass-water text-base"></i><span class="text-[9px]">Barra</span></button>
+            <button onclick="switchTab('aguas')" id="mnav-aguas" class="mnav-btn flex flex-col items-center py-1 px-2.5 text-gray-500 shrink-0"><i class="fa-solid fa-bottle-water text-base"></i><span class="text-[9px]">Aguas</span></button>
+            <button onclick="switchTab('gastos')" id="mnav-gastos" class="mnav-btn flex flex-col items-center py-1 px-2.5 text-gray-500 shrink-0"><i class="fa-solid fa-money-bill-transfer text-base"></i><span class="text-[9px]">Gastos</span></button>
+            <button onclick="switchTab('rotacion')" id="mnav-rotacion" class="mnav-btn flex flex-col items-center py-1 px-2.5 text-gray-500 shrink-0"><i class="fa-solid fa-chart-simple text-base"></i><span class="text-[9px]">Rotación</span></button>
+            <button onclick="switchTab('reportes')" id="mnav-reportes" class="mnav-btn flex flex-col items-center py-1 px-2.5 text-gray-500 shrink-0"><i class="fa-solid fa-scale-balanced text-base"></i><span class="text-[9px]">Cortes</span></button>
+            <button onclick="switchTab('inventario')" id="mnav-inventario" class="mnav-btn flex flex-col items-center py-1 px-2.5 text-gray-500 shrink-0"><i class="fa-solid fa-utensils text-base"></i><span class="text-[9px]">Menú</span></button>
+            <button onclick="switchTab('usuarios')" id="mnav-usuarios" class="mnav-btn flex flex-col items-center py-1 px-2.5 text-gray-500 shrink-0"><i class="fa-solid fa-users text-base"></i><span class="text-[9px]">Usuarios</span></button>
+        </nav>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL: COMANDERO CON SCROLL MÓVIL CORREGIDO Y BOTONES SIEMPRE VISIBLES     -->
+    <!-- ========================================================================= -->
+    <div id="modal-comandero" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center p-0 md:p-4 z-50">
+        <div class="bg-white rounded-none md:rounded-3xl w-full h-[100dvh] md:h-[92vh] md:max-w-6xl flex flex-col overflow-hidden shadow-2xl border-0 md:border-4 border-yellow-400">
+            
+            <!-- 1. Encabezado Fijo -->
+            <div class="bg-neutral-900 text-white px-4 py-2.5 flex justify-between items-center border-b border-neutral-800 shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-yellow-400 text-neutral-900 font-black rounded-xl flex items-center justify-center text-base shadow" id="com-mesa-num">M1</div>
+                    <div>
+                        <h2 id="com-mesa-titulo" class="font-black text-sm md:text-lg text-yellow-400 leading-tight">Comandero - Mesa</h2>
+                        <p class="text-[10px] text-gray-400">Atiende: <span id="com-mesero-nombre" class="text-white font-bold">Admin</span></p>
+                    </div>
+                </div>
+                <button onclick="closeModal('modal-comandero')" class="text-gray-400 hover:text-white bg-neutral-800 w-8 h-8 rounded-xl flex items-center justify-center"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <!-- 2. Barra de Platos Fija -->
+            <div class="bg-amber-50 border-b border-amber-200 px-3 py-2 flex items-center gap-2 touch-scroll-x shrink-0">
+                <span class="text-[11px] font-black uppercase text-amber-900 shrink-0"><i class="fa-solid fa-plate-wheat mr-1"></i> Plato:</span>
+                <div id="barra-botones-platos" class="flex items-center gap-1.5 touch-scroll-x py-0.5"></div>
+                <button onclick="crearNuevoPlato()" class="bg-neutral-900 hover:bg-neutral-800 text-yellow-400 text-xs font-black px-3 py-1.5 rounded-xl shrink-0 shadow flex items-center gap-1 ml-auto">
+                    <i class="fa-solid fa-plus"></i> Nuevo Plato
+                </button>
+            </div>
+
+            <!-- 3. Selector de Pestañas en Móvil -->
+            <div class="flex bg-neutral-800 text-white text-xs font-bold lg:hidden shrink-0 border-b border-neutral-700">
+                <button onclick="cambiarVistaComanderoMovil('menu')" id="btn-tab-menu" class="flex-1 py-2.5 text-center bg-yellow-400 text-neutral-900 font-black flex items-center justify-center gap-1.5">
+                    <i class="fa-solid fa-utensils"></i> 1. Tocar Platillos
+                </button>
+                <button onclick="cambiarVistaComanderoMovil('comanda')" id="btn-tab-comanda" class="flex-1 py-2.5 text-center flex items-center justify-center gap-1.5 text-gray-300 bg-neutral-800">
+                    <i class="fa-solid fa-receipt"></i> 2. Revisar Platos (<span id="mobile-badge-count">0</span>)
+                </button>
+            </div>
+
+            <!-- 4. Área Central Deslizable (Con min-h-0 para que nunca empuje los botones inferiores fuera de la pantalla) -->
+            <div class="flex-1 flex flex-col lg:flex-row overflow-hidden bg-gray-50 min-h-0">
+                
+                <!-- PANEL IZQUIERDO: MENÚ DE PLATILLOS -->
+                <div id="panel-menu-movil" class="flex-1 p-3 flex flex-col overflow-hidden min-h-0">
+                    <div class="bg-yellow-100 border border-yellow-300 text-yellow-900 px-3 py-1.5 rounded-xl text-xs font-bold mb-2 flex items-center justify-between shrink-0">
+                        <span>Agregando en: <strong id="label-plato-activo-menu" class="uppercase underline">Plato 1</strong></span>
+                        <span id="toast-agregado" class="hidden bg-green-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">¡Agregado!</span>
+                    </div>
+
+                    <div class="flex gap-1.5 touch-scroll-x pb-2 shrink-0">
+                        <button onclick="filtrarComanderoMenu('Todos')" class="com-cat-btn bg-yellow-400 text-neutral-900 px-3 py-1.5 rounded-xl text-xs font-black shrink-0 shadow-sm">Todos</button>
+                        <button onclick="filtrarComanderoMenu('Tacos')" class="com-cat-btn bg-white border text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold shrink-0">🌮 Tacos</button>
+                        <button onclick="filtrarComanderoMenu('Tacos Premium')" class="com-cat-btn bg-white border text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold shrink-0">⭐ Premium</button>
+                        <button onclick="filtrarComanderoMenu('Tortas')" class="com-cat-btn bg-white border text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold shrink-0">🥖 Tortas</button>
+                        <button onclick="filtrarComanderoMenu('Burritos')" class="com-cat-btn bg-white border text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold shrink-0">🌯 Burritos</button>
+                        <button onclick="filtrarComanderoMenu('Huaraches')" class="com-cat-btn bg-white border text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold shrink-0">🫓 Huaraches</button>
+                        <button onclick="filtrarComanderoMenu('Bebidas')" class="com-cat-btn bg-white border text-gray-700 px-3 py-1.5 rounded-xl text-xs font-bold shrink-0">🥤 Bebidas</button>
+                    </div>
+
+                    <!-- Cuadrícula de productos con scroll vertical independiente -->
+                    <div id="com-grid-productos" class="flex-1 touch-scroll-y grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 pr-1 mt-1 pb-4 min-h-0"></div>
+                </div>
+
+                <!-- PANEL DERECHO: LISTA DE PLATOS CON SCROLL VERTICAL INDEPENDIENTE -->
+                <div id="panel-comanda-movil" class="flex-1 lg:flex-none lg:w-[450px] bg-white hidden lg:flex flex-col p-3 overflow-hidden min-h-0 border-l border-gray-200">
+                    <div class="flex items-center justify-between mb-2 shrink-0">
+                        <h3 class="font-black text-gray-900 text-xs sm:text-sm flex items-center gap-1.5">
+                            <i class="fa-solid fa-plate-wheat text-yellow-500"></i> Platos de la Orden (Desliza hacia abajo)
+                        </h3>
+                        <span id="com-item-count" class="text-[11px] bg-yellow-100 text-yellow-800 px-2.5 py-0.5 rounded-full font-bold">0 ítems</span>
+                    </div>
+                    <!-- Lista de platos con deslizamiento garantizado -->
+                    <div id="com-lista-cuenta" class="flex-1 touch-scroll-y space-y-3 pr-1 pb-4 min-h-0"></div>
+                </div>
+            </div>
+
+            <!-- 5. BARRA INFERIOR FIJA SIEMPRE VISIBLE (TANTO EN MENÚ COMO EN COMANDA) -->
+            <div class="bg-white border-t-2 border-gray-200 px-4 py-2.5 shrink-0 shadow-lg z-20">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs sm:text-sm font-black text-gray-700 uppercase">Total Acumulado Mesa:</span>
+                    <span id="com-total-cuenta" class="text-yellow-600 text-lg sm:text-xl font-black">$0.00</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2.5">
+                    <button type="button" onclick="enviarComandaCocinaBarra()" class="bg-neutral-900 hover:bg-neutral-800 active:scale-95 text-yellow-400 font-black py-3 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition">
+                        <i class="fa-solid fa-paper-plane"></i> Enviar a Cocina/Barra
+                    </button>
+                    <button type="button" onclick="abrirModalCobroConTicket()" class="bg-yellow-400 hover:bg-yellow-500 active:scale-95 text-neutral-900 font-black py-3 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow transition">
+                        <i class="fa-solid fa-cash-register"></i> Ver Ticket y Cobrar
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- MODAL: REGISTRAR GASTO -->
+    <div id="modal-gasto" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-xl my-auto">
+            <div class="bg-neutral-900 text-yellow-400 px-6 py-4 flex justify-between items-center">
+                <h3 class="font-black text-lg">Registrar Gasto Operativo</h3>
+                <button onclick="closeModal('modal-gasto')" class="text-gray-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <form id="form-gasto" class="p-6 space-y-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Concepto / Descripción</label>
+                    <input type="text" id="gasto-concepto" required placeholder="Ej. 15 kg de Suadero, Cilantro y Cebolla, Gas..." class="w-full border rounded-xl px-3 py-2">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Categoría</label>
+                        <select id="gasto-categoria" class="w-full border rounded-xl px-3 py-2 bg-white">
+                            <option value="Insumos / Carne">Insumos / Carne</option>
+                            <option value="Verduras y Abarrotes">Verduras y Abarrotes</option>
+                            <option value="Bebidas">Bebidas / Hielo</option>
+                            <option value="Servicios / Gas">Servicios / Gas</option>
+                            <option value="Nómina / Sueldos">Nómina / Sueldos</option>
+                            <option value="Otros">Otros Gastos</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Monto ($)</label>
+                        <input type="number" step="0.50" min="0.50" id="gasto-monto" required placeholder="0.00" class="w-full border rounded-xl px-3 py-2 font-black">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Método de Pago</label>
+                        <select id="gasto-metodo" class="w-full border rounded-xl px-3 py-2 bg-white">
+                            <option value="Efectivo">Efectivo</option>
+                            <option value="Transferencia">Transferencia</option>
+                            <option value="Tarjeta">Tarjeta</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-600 mb-1">Fecha</label>
+                        <input type="date" id="gasto-fecha" required class="w-full border rounded-xl px-3 py-2">
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2 pt-3 border-t">
+                    <button type="button" onclick="closeModal('modal-gasto')" class="px-4 py-2 bg-gray-100 rounded-xl font-semibold">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-yellow-400 hover:bg-yellow-500 text-neutral-900 font-black rounded-xl">Guardar Gasto</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL: COBRO Y VISTA PREVIA DE TICKET 58MM (CON SCROLL FLUIDO EN MÓVIL)   -->
+    <!-- ========================================================================= -->
+    <div id="modal-cobro" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center p-0 md:p-6 z-50">
+        <div class="bg-white rounded-none md:rounded-3xl w-full h-[100dvh] md:h-auto md:max-h-[95vh] max-w-5xl overflow-hidden shadow-2xl border-0 md:border-4 border-yellow-400 flex flex-col">
+            <div class="bg-neutral-900 text-white px-4 sm:px-6 py-3.5 flex justify-between items-center border-b border-neutral-800 shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 bg-yellow-400 text-neutral-900 rounded-xl flex items-center justify-center text-lg font-black"><i class="fa-solid fa-cash-register"></i></div>
+                    <div>
+                        <h3 class="font-black text-sm sm:text-lg text-yellow-400">Cierre de Cuenta y Cobro</h3>
+                        <p id="cobrar-mesa-label" class="text-[11px] text-gray-300">Mesa 1</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="abrirModalVistaPreviaTicket()" class="lg:hidden bg-amber-500 hover:bg-amber-600 text-neutral-900 font-black px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 shadow">
+                        <i class="fa-solid fa-receipt"></i> Ticket 58mm
+                    </button>
+                    <button onclick="volverAlComandero()" class="text-gray-300 hover:text-white bg-neutral-800 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1">
+                        <i class="fa-solid fa-arrow-left"></i> Volver
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex-1 touch-scroll-y grid grid-cols-1 lg:grid-cols-12 bg-gray-100 min-h-0">
+                <div class="lg:col-span-7 p-4 sm:p-6 bg-white flex flex-col justify-between space-y-4">
+                    <div class="space-y-4">
+                        <div class="bg-neutral-900 text-white p-4 rounded-2xl flex justify-between items-center shadow">
+                            <div><p class="text-xs uppercase text-gray-400 font-bold">Total de la Cuenta</p><p class="text-[11px] text-yellow-400">Desglose de formas de pago</p></div>
+                            <p id="cobrar-total-label" class="text-2xl sm:text-3xl font-black text-yellow-400">$0.00</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-gray-500 mb-2">Pago Rápido (100%)</label>
+                            <div class="grid grid-cols-3 gap-2">
+                                <button type="button" onclick="asignarPagoUnico('efectivo')" class="bg-green-50 border border-green-300 text-green-800 font-bold py-2.5 rounded-xl text-xs">💵 Efectivo</button>
+                                <button type="button" onclick="asignarPagoUnico('tarjeta')" class="bg-blue-50 border border-blue-300 text-blue-800 font-bold py-2.5 rounded-xl text-xs">💳 Tarjeta</button>
+                                <button type="button" onclick="asignarPagoUnico('transferencia')" class="bg-purple-50 border border-purple-300 text-purple-800 font-bold py-2.5 rounded-xl text-xs">📱 Transfer</button>
+                            </div>
+                        </div>
+                        <div class="space-y-2.5 bg-gray-50 p-3.5 rounded-2xl border border-gray-200">
+                            <p class="text-xs font-black uppercase text-gray-700 mb-1"><i class="fa-solid fa-sliders mr-1"></i> Combinar Pagos</p>
+                            <div class="flex items-center justify-between gap-2">
+                                <label class="text-xs sm:text-sm font-bold text-gray-700 w-32">💵 Efectivo:</label>
+                                <input type="number" step="0.50" min="0" id="pago-efectivo" oninput="recalcularPagosCombinados()" class="w-full pl-3 pr-3 py-2 border rounded-xl font-black text-right">
+                                <button type="button" onclick="llenarRestante('efectivo')" class="text-xs bg-gray-200 px-2.5 py-2 rounded-lg font-bold">Resto</button>
+                            </div>
+                            <div class="flex items-center justify-between gap-2">
+                                <label class="text-xs sm:text-sm font-bold text-gray-700 w-32">💳 Tarjeta:</label>
+                                <input type="number" step="0.50" min="0" id="pago-tarjeta" oninput="recalcularPagosCombinados()" class="w-full pl-3 pr-3 py-2 border rounded-xl font-black text-right">
+                                <button type="button" onclick="llenarRestante('tarjeta')" class="text-xs bg-gray-200 px-2.5 py-2 rounded-lg font-bold">Resto</button>
+                            </div>
+                            <div class="flex items-center justify-between gap-2">
+                                <label class="text-xs sm:text-sm font-bold text-gray-700 w-32">📱 Transfer:</label>
+                                <input type="number" step="0.50" min="0" id="pago-transferencia" oninput="recalcularPagosCombinados()" class="w-full pl-3 pr-3 py-2 border rounded-xl font-black text-right">
+                                <button type="button" onclick="llenarRestante('transferencia')" class="text-xs bg-gray-200 px-2.5 py-2 rounded-lg font-bold">Resto</button>
+                            </div>
+                        </div>
+                        <div id="box-estado-pago" class="p-3.5 rounded-2xl border-2 border-green-300 bg-green-50 flex justify-between items-center">
+                            <div><p id="label-estado-pago" class="text-xs font-black uppercase text-green-800">Cambio a Entregar</p><p id="sub-estado-pago" class="text-[11px] text-green-700">Cuenta cubierta</p></div>
+                            <p id="monto-estado-pago" class="text-xl sm:text-2xl font-black text-green-700">$0.00</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3 border-t">
+                        <button type="button" onclick="imprimirTicketTermico()" class="bg-gray-800 hover:bg-gray-900 text-white font-bold py-3.5 px-4 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-print"></i> Imprimir Ticket 58mm (Manual)
+                        </button>
+                        <button type="button" id="btn-confirmar-cobro" onclick="procesarPagoFinal()" class="bg-yellow-400 hover:bg-yellow-500 text-neutral-900 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg">
+                            <i class="fa-solid fa-circle-check"></i> Solo Cobrar y Liberar
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Columna Derecha: Vista Previa Ticket Térmico 58mm -->
+                <div class="hidden lg:col-span-5 p-6 bg-neutral-200 lg:flex flex-col items-center justify-start overflow-y-auto">
+                    <div class="flex items-center justify-between w-full max-w-[220px] mb-2">
+                        <p class="text-[11px] font-black uppercase text-gray-700"><i class="fa-solid fa-print text-amber-600 mr-1"></i> Rollo 58 mm</p>
+                        <span class="text-[10px] bg-neutral-800 text-yellow-400 px-2 py-0.5 rounded font-bold">Bluetooth</span>
+                    </div>
+                    <div id="printable-ticket-area" class="ticket-preview rounded-sm">
+                        <div class="text-center border-b border-dashed border-gray-400 pb-2 mb-1.5">
+                            <img src="WhatsApp Image 2026-10-25 at 00.17.12_2.jpeg" alt="Logo" class="logo-img w-14 h-14 mx-auto rounded-full object-contain bg-white mb-1" onerror="intentarRutaAlternaLogo(this)">
+                            <h2 class="font-black text-sm leading-tight">EL GRAN TACO</h2>
+                            <p class="text-[9px] font-bold">SABOR QUE MANDA</p>
+                            <p id="tkt-fecha" class="text-[9px] mt-0.5 text-gray-700"></p>
+                        </div>
+                        <div class="border-b border-dashed border-gray-400 pb-1.5 mb-1.5 text-[10px] space-y-0.5">
+                            <div class="flex justify-between"><span>Orden:</span><strong id="tkt-folio">#0</strong></div>
+                            <div class="flex justify-between"><span>Mesa:</span><strong id="tkt-mesa">Mesa 1</strong></div>
+                            <div class="flex justify-between"><span>Mesero:</span><strong id="tkt-mesero">Admin</strong></div>
+                        </div>
+                        <div class="border-b border-dashed border-gray-400 pb-1 mb-1 font-bold text-[9px] flex justify-between">
+                            <span>CANT / CONCEPTO</span>
+                            <span>IMPORTE</span>
+                        </div>
+                        <div id="tkt-lista-items" class="space-y-1 border-b border-dashed border-gray-400 pb-1.5 mb-1.5 text-[10px]"></div>
+                        <div class="space-y-0.5 text-[10px] border-b border-dashed border-gray-400 pb-1.5 mb-1.5">
+                            <div class="flex justify-between font-black text-xs"><span>TOTAL:</span><span id="tkt-total">$0.00</span></div>
+                            <div id="tkt-desglose-pagos" class="text-[9px] space-y-0.5 pt-0.5 text-gray-800"></div>
+                        </div>
+                        <div class="text-center text-[9px] space-y-0.5">
+                            <p class="font-bold">¡GRACIAS POR SU COMPRA!</p>
+                            <p>Carne recién salida del cazo</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL FLOTANTE PARA VER TICKET 58MM EN MÓVIL -->
+    <div id="modal-ticket-movil" class="hidden fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-[70] touch-scroll-y">
+        <div class="bg-neutral-900 rounded-3xl p-4 max-w-xs w-full flex flex-col items-center shadow-2xl border-2 border-yellow-400 my-auto">
+            <div class="flex justify-between w-full items-center mb-3 text-white">
+                <span class="font-black text-yellow-400 text-xs"><i class="fa-solid fa-print mr-1"></i> Ticket Bluetooth (58 mm)</span>
+                <button onclick="document.getElementById('modal-ticket-movil').classList.add('hidden')" class="bg-neutral-800 w-8 h-8 rounded-full text-gray-300 font-bold">✕</button>
+            </div>
+            <div id="printable-ticket-area-movil" class="ticket-preview rounded-sm mb-4">
+                <div class="text-center border-b border-dashed border-gray-400 pb-2 mb-1.5">
+                    <img src="WhatsApp Image 2026-10-25 at 00.17.12_2.jpeg" alt="Logo" class="logo-img w-14 h-14 mx-auto rounded-full object-contain bg-white mb-1" onerror="intentarRutaAlternaLogo(this)">
+                    <h2 class="font-black text-sm leading-tight">EL GRAN TACO</h2>
+                    <p class="text-[9px] font-bold">SABOR QUE MANDA</p>
+                    <p id="tkt-fecha-m" class="text-[9px] mt-0.5 text-gray-700"></p>
+                </div>
+                <div class="border-b border-dashed border-gray-400 pb-1.5 mb-1.5 text-[10px] space-y-0.5">
+                    <div class="flex justify-between"><span>Orden:</span><strong id="tkt-folio-m">#0</strong></div>
+                    <div class="flex justify-between"><span>Mesa:</span><strong id="tkt-mesa-m">Mesa 1</strong></div>
+                    <div class="flex justify-between"><span>Mesero:</span><strong id="tkt-mesero-m">Admin</strong></div>
+                </div>
+                <div class="border-b border-dashed border-gray-400 pb-1 mb-1 font-bold text-[9px] flex justify-between"><span>CANT / CONCEPTO</span><span>IMPORTE</span></div>
+                <div id="tkt-lista-items-m" class="space-y-1 border-b border-dashed border-gray-400 pb-1.5 mb-1.5 text-[10px]"></div>
+                <div class="space-y-0.5 text-[10px] border-b border-dashed border-gray-400 pb-1.5 mb-1.5">
+                    <div class="flex justify-between font-black text-xs"><span>TOTAL:</span><span id="tkt-total-m">$0.00</span></div>
+                    <div id="tkt-desglose-pagos-m" class="text-[9px] space-y-0.5 pt-0.5 text-gray-800"></div>
+                </div>
+                <div class="text-center text-[9px] space-y-0.5"><p class="font-bold">¡GRACIAS POR SU COMPRA!</p></div>
+            </div>
+            <button onclick="imprimirTicketTermico(); document.getElementById('modal-ticket-movil').classList.add('hidden');" class="w-full bg-yellow-400 text-neutral-900 font-black py-3 rounded-xl text-xs shadow">
+                <i class="fa-solid fa-print mr-1"></i> Enviar a Impresora 58mm
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL INVENTARIO -->
+    <div id="modal-inventario" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-xl p-6 my-auto">
+            <h3 class="font-bold text-lg mb-3">Platillo / Producto</h3>
+            <form id="form-inventario" class="space-y-3">
+                <input type="hidden" id="inv-id">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Nombre</label>
+                    <input type="text" id="inv-nombre" required placeholder="Nombre" class="w-full border rounded-lg px-3 py-2">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Categoría</label>
+                        <select id="inv-categoria" class="w-full border rounded-lg px-3 py-2 bg-white">
+                            <option value="Tacos">Tacos</option>
+                            <option value="Tacos Premium">Tacos Premium</option>
+                            <option value="Tortas">Tortas</option>
+                            <option value="Burritos">Burritos</option>
+                            <option value="Huaraches">Huaraches</option>
+                            <option value="Extras">Extras (Precio Queso)</option>
+                            <option value="Bebidas">Bebidas</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Precio ($)</label>
+                        <input type="number" step="0.50" id="inv-precio" required placeholder="Precio" class="w-full border rounded-lg px-3 py-2">
+                    </div>
+                </div>
+                <div class="bg-cyan-50 border border-cyan-200 p-3 rounded-xl space-y-2">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="inv-es-inventariable" onchange="document.getElementById('box-stock-inv').classList.toggle('hidden', !this.checked)" class="w-4 h-4 accent-cyan-600">
+                        <span class="text-xs font-black text-cyan-900">¿Controlar inventario de este producto? (Solo Aguas)</span>
+                    </label>
+                    <div id="box-stock-inv" class="hidden pt-1">
+                        <label class="block text-[11px] font-bold uppercase text-cyan-800 mb-1">Existencia Actual (Litros / Unidades)</label>
+                        <input type="number" step="0.5" id="inv-stock" value="30" class="w-full border border-cyan-300 rounded-lg px-3 py-1.5 bg-white font-black">
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('modal-inventario')" class="px-4 py-2 bg-gray-100 rounded-lg font-semibold">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-yellow-400 font-black rounded-lg">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL MESAS -->
+    <div id="modal-mesa" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-xl p-6">
+            <h3 class="font-bold text-lg mb-3">Configurar Mesa</h3>
+            <form id="form-mesa" class="space-y-3">
+                <input type="hidden" id="mesa-id">
+                <input type="text" id="mesa-nombre" required placeholder="Nombre o Número" class="w-full border rounded-lg px-3 py-2">
+                <input type="number" id="mesa-capacidad" required value="4" class="w-full border rounded-lg px-3 py-2">
+                <select id="mesa-ubicacion" class="w-full border rounded-lg px-3 py-2 bg-white"><option value="Salón Principal">Salón Principal</option><option value="Terraza">Terraza</option><option value="Barra">Barra</option><option value="Mostrador">Para Llevar</option></select>
+                <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal('modal-mesa')" class="px-4 py-2 bg-gray-100 rounded-lg">Cancelar</button><button type="submit" class="px-5 py-2 bg-yellow-400 font-black rounded-lg">Guardar</button></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL USUARIOS -->
+    <div id="modal-usuario" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-xl p-6">
+            <h3 id="modal-usr-titulo" class="font-bold text-lg mb-3">Nuevo Usuario</h3>
+            <form id="form-usuario" class="space-y-3">
+                <input type="hidden" id="usr-id">
+                <input type="text" id="usr-nombre" required placeholder="Nombre Completo" class="w-full border rounded-lg px-3 py-2">
+                <input type="text" id="usr-username" required placeholder="Usuario" class="w-full border rounded-lg px-3 py-2">
+                <input type="text" id="usr-password" required placeholder="Contraseña" class="w-full border rounded-lg px-3 py-2">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-gray-500 mb-1">Perfil de Acceso</label>
+                    <select id="usr-rol" class="w-full border rounded-lg px-3 py-2 bg-white font-semibold">
+                        <option value="Administrador">Administrador (Acceso Total)</option>
+                        <option value="Gerente">Gerente (Todo excepto alta de Usuarios)</option>
+                        <option value="Mesero">Mesero (Mesas, Comandero, Cocina y Barra)</option>
+                        <option value="Cocina">Cocina (Monitor Cocina y Monitor Barra)</option>
+                        <option value="Barra">Barra (Monitor Cocina y Monitor Barra)</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('modal-usuario')" class="px-4 py-2 bg-gray-100 rounded-lg font-semibold">Cancelar</button>
+                    <button type="submit" class="px-5 py-2 bg-yellow-400 hover:bg-yellow-500 text-neutral-900 font-black rounded-lg">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- SCRIPT DE LÓGICA COMPLETO -->
+    <script>
+        const SUPABASE_URL = 'https://pemapfwfzjqrqwrdvvzu.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlbWFwZndmempxcnF3cmR2dnp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwMjQ4NTUsImV4cCI6MjEwODYwMDg1NX0.y4W3aV9CfdcnDWqJoc2ai-U34h0CR9LpJClzBTAiZ2k';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let currentUser = null;
+        let inventarioCache = [];
+        let mesasCache = [];
+        let mesaActiva = null;
+        let pedidoActual = null;
+        let itemsComandero = [];
+        let listaPlatos = ['Plato 1'];
+        let platoActivo = 'Plato 1';
+        let notasPorPlato = { 'Plato 1': '' };
+        let filtroComCat = 'Todos';
+        let monitorInterval = null;
+        let totalCuentaCobrar = 0;
+        let tipoCorteActual = 'diario';
+
+        function esProductoInventariable(p) {
+            if (!p) return false;
+            if (p.es_inventariable === true) return true;
+            if (p.es_inventariable === false) return false;
+            const nom = (p.nombre || '').toLowerCase();
+            return p.categoria === 'Bebidas' && nom.includes('agua') && !nom.includes('mineral');
+        }
+
+        function obtenerInfoExtraParaCategoria(categoria) {
+            if (['Tacos', 'Tacos Premium', 'Tortas'].includes(categoria)) {
+                const extraEnInv = inventarioCache.find(i => i.categoria === 'Extras' && i.nombre.toLowerCase().includes('taco'));
+                return {
+                    aplica: true,
+                    nombreExtra: extraEnInv ? extraEnInv.nombre : 'Queso Extra (Taco / Torta)',
+                    precioExtra: extraEnInv ? Number(extraEnInv.precio) : 10,
+                    etiquetaCorta: '+ Con Queso'
+                };
+            }
+            if (categoria === 'Huaraches') {
+                const extraEnInv = inventarioCache.find(i => i.categoria === 'Extras' && i.nombre.toLowerCase().includes('huarache'));
+                return {
+                    aplica: true,
+                    nombreExtra: extraEnInv ? extraEnInv.nombre : 'Queso Extra (Huarache)',
+                    precioExtra: extraEnInv ? Number(extraEnInv.precio) : 20,
+                    etiquetaCorta: '+ Con Queso'
+                };
+            }
+            return { aplica: false, nombreExtra: null, precioExtra: 0, etiquetaCorta: '' };
+        }
+
+        function obtenerPestanasPermitidas(rol) {
+            const r = (rol || '').toLowerCase();
+            if (r === 'administrador') {
+                return ['mesas', 'cocina', 'barra', 'aguas', 'gastos', 'rotacion', 'reportes', 'inventario', 'usuarios'];
+            }
+            if (r === 'gerente') {
+                return ['mesas', 'cocina', 'barra', 'aguas', 'gastos', 'rotacion', 'reportes', 'inventario'];
+            }
+            if (r === 'mesero') {
+                return ['mesas', 'cocina', 'barra'];
+            }
+            if (r === 'cocina' || r === 'taquero' || r === 'barra') {
+                return ['cocina', 'barra'];
+            }
+            return ['mesas', 'cocina', 'barra'];
+        }
+
+        function aplicarPermisosPorPerfil() {
+            if (!currentUser) return;
+            const rol = currentUser.rol || 'Mesero';
+            const permitidas = obtenerPestanasPermitidas(rol);
+            const todasLasPestanas = ['mesas', 'cocina', 'barra', 'aguas', 'gastos', 'rotacion', 'reportes', 'inventario', 'usuarios'];
+
+            todasLasPestanas.forEach(tab => {
+                const tieneAcceso = permitidas.includes(tab);
+                document.getElementById(`nav-${tab}`)?.classList.toggle('hidden', !tieneAcceso);
+                document.getElementById(`mnav-${tab}`)?.classList.toggle('hidden', !tieneAcceso);
+            });
+
+            const veFinanzas = permitidas.includes('aguas') || permitidas.includes('gastos') || permitidas.includes('rotacion') || permitidas.includes('reportes');
+            const veCatalogos = permitidas.includes('inventario') || permitidas.includes('usuarios');
+            document.getElementById('lbl-sec-finanzas')?.classList.toggle('hidden', !veFinanzas);
+            document.getElementById('lbl-sec-catalogos')?.classList.toggle('hidden', !veCatalogos);
+
+            const esAdminOGerente = ['administrador', 'gerente'].includes(rol.toLowerCase());
+            document.getElementById('btn-nueva-mesa')?.classList.toggle('hidden', !esAdminOGerente);
+            document.getElementById('btn-cambiar-logo-side')?.classList.toggle('hidden', !esAdminOGerente);
+
+            if (rol.toLowerCase() === 'barra') {
+                switchTab('barra');
+            } else if (rol.toLowerCase() === 'cocina' || rol.toLowerCase() === 'taquero') {
+                switchTab('cocina');
+            } else {
+                switchTab(permitidas[0]);
+            }
+        }
+
+        function obtenerFechaLocalISO(d = new Date()) {
+            const offset = d.getTimezoneOffset();
+            const local = new Date(d.getTime() - (offset * 60 * 1000));
+            return local.toISOString().split('T')[0];
+        }
+
+        function inicializarFechasPorDefecto() {
+            const hoy = obtenerFechaLocalISO();
+            const hace7Dias = obtenerFechaLocalISO(new Date(Date.now() - 6 * 86400000));
+            const mesActual = hoy.slice(0, 7);
+
+            document.getElementById('aguas-fecha-inicio').value = hace7Dias;
+            document.getElementById('aguas-fecha-fin').value = hoy;
+
+            document.getElementById('gasto-filtro-inicio').value = hace7Dias;
+            document.getElementById('gasto-filtro-fin').value = hoy;
+            document.getElementById('gasto-fecha').value = hoy;
+
+            document.getElementById('rot-fecha-inicio').value = hace7Dias;
+            document.getElementById('rot-fecha-fin').value = hoy;
+
+            document.getElementById('input-corte-dia').value = hoy;
+            document.getElementById('input-sem-inicio').value = hace7Dias;
+            document.getElementById('input-sem-fin').value = hoy;
+            document.getElementById('input-corte-mes').value = mesActual;
+        }
+
+        function intentarRutaAlternaLogo(imgElement) {
+            const savedBase64 = localStorage.getItem('elgrantaco_logo_base64');
+            if (savedBase64 && imgElement.src !== savedBase64) {
+                imgElement.src = savedBase64;
+                return;
+            }
+            const intentos = ['WhatsApp Image 2026-10-25 at 00.17.12_2.jpeg', 'WhatsApp Image 2026-10-25 at 00.17.12.jpeg', 'logo.jpeg'];
+            const idx = parseInt(imgElement.dataset.tryIdx || '0');
+            if (idx < intentos.length) {
+                imgElement.dataset.tryIdx = idx + 1;
+                imgElement.src = intentos[idx];
+            }
+        }
+
+        function cargarLogoDesdeSupabase() {
+            const localLogo = localStorage.getItem('elgrantaco_logo_base64');
+            if (localLogo) document.querySelectorAll('.logo-img').forEach(img => img.src = localLogo);
+
+            supabaseClient.from('configuracion').select('valor').eq('clave', 'logo_base64').maybeSingle()
+                .then(({ data }) => {
+                    if (data && data.valor) {
+                        localStorage.setItem('elgrantaco_logo_base64', data.valor);
+                        document.querySelectorAll('.logo-img').forEach(img => img.src = data.valor);
+                    }
+                }).catch(() => {});
+        }
+
+        function guardarLogoOficial(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const maxDim = 450;
+                    let w = img.width, h = img.height;
+                    if (w > h && w > maxDim) { h *= maxDim / w; w = maxDim; } else if (h > maxDim) { w *= maxDim / h; h = maxDim; }
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    const base64Optimo = canvas.toDataURL('image/jpeg', 0.88);
+                    localStorage.setItem('elgrantaco_logo_base64', base64Optimo);
+                    document.querySelectorAll('.logo-img').forEach(el => el.src = base64Optimo);
+                    supabaseClient.from('configuracion').upsert([{ clave: 'logo_base64', valor: base64Optimo }]).then(() => {}).catch(() => {});
+                    alert('¡Logo oficial actualizado!');
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            inicializarFechasPorDefecto();
+            cargarLogoDesdeSupabase();
+            const savedUser = localStorage.getItem('elgrantaco_user');
+            if (savedUser) {
+                try { currentUser = JSON.parse(savedUser); iniciarApp(); } catch (e) { logout(); }
+            }
+        });
+
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value.trim();
+            const errorBox = document.getElementById('login-error');
+            const btnLogin = document.getElementById('btn-login');
+
+            errorBox.classList.add('hidden');
+            btnLogin.disabled = true;
+
+            try {
+                let { data, error } = await supabaseClient.from('usuarios').select('*').ilike('username', username);
+                if ((!data || data.length === 0) && username.toLowerCase() === 'admin' && password === 'password') {
+                    const { data: nuevoAdmin } = await supabaseClient.from('usuarios').insert([{ username: 'admin', password: 'password', nombre: 'Administrador Principal', rol: 'Administrador', activo: true }]).select();
+                    if (nuevoAdmin) data = nuevoAdmin;
+                }
+                btnLogin.disabled = false;
+                if (error || !data || data.length === 0 || data[0].password !== password || !data[0].activo) {
+                    errorBox.textContent = 'Usuario o contraseña incorrectos.';
+                    errorBox.classList.remove('hidden');
+                    return;
+                }
+                currentUser = data[0];
+                localStorage.setItem('elgrantaco_user', JSON.stringify(currentUser));
+                iniciarApp();
+            } catch (err) {
+                btnLogin.disabled = false;
+                errorBox.textContent = 'Error: ' + err.message;
+                errorBox.classList.remove('hidden');
+            }
+        });
+
+        function iniciarApp() {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('app-container').classList.remove('hidden');
+            document.getElementById('user-name-display').textContent = currentUser.nombre;
+            document.getElementById('user-role-badge').textContent = currentUser.rol;
+            document.getElementById('mobile-role-badge').textContent = currentUser.rol;
+            document.getElementById('mobile-user-name').textContent = currentUser.username;
+
+            cargarLogoDesdeSupabase();
+            cargarInventario();
+            cargarMesas();
+            cargarComandasActivas();
+            if ((currentUser.rol || '').toLowerCase() === 'administrador') {
+                cargarUsuarios();
+            }
+
+            aplicarPermisosPorPerfil();
+
+            if (monitorInterval) clearInterval(monitorInterval);
+            monitorInterval = setInterval(() => { cargarComandasActivas(); cargarMesas(); }, 8000);
+        }
+
+        function logout() {
+            if (monitorInterval) clearInterval(monitorInterval);
+            localStorage.removeItem('elgrantaco_user');
+            currentUser = null;
+            document.getElementById('app-container').classList.add('hidden');
+            document.getElementById('login-screen').classList.remove('hidden');
+        }
+
+        function switchTab(tab) {
+            if (currentUser) {
+                const permitidas = obtenerPestanasPermitidas(currentUser.rol);
+                if (!permitidas.includes(tab)) {
+                    alert(`Tu perfil (${currentUser.rol}) no tiene acceso a este módulo.`);
+                    return;
+                }
+            }
+
+            document.querySelectorAll('.module-section').forEach(s => s.classList.add('hidden'));
+            document.getElementById(`sec-${tab}`).classList.remove('hidden');
+            document.querySelectorAll('.nav-btn, .mnav-btn').forEach(b => b.classList.remove('active-nav', 'active-nav-mobile'));
+            document.getElementById(`nav-${tab}`)?.classList.add('active-nav');
+            document.getElementById(`mnav-${tab}`)?.classList.add('active-nav-mobile');
+
+            if (tab === 'cocina' || tab === 'barra') cargarComandasActivas();
+            if (tab === 'mesas') cargarMesas();
+            if (tab === 'aguas
